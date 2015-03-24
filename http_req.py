@@ -44,6 +44,7 @@ def parse_pcap_file(filename):
 					ack = int(tcp.ack)
 					source = socket.inet_ntoa(ip.src)
 					dst = socket.inet_ntoa(ip.dst)
+					dport = tcp.dport;
 					if 'content-encoding' in http.headers.keys():
 						#print "Encoded using ", http.headers['content-encoding']
 						if http.headers['content-encoding']=="gzip":
@@ -51,7 +52,7 @@ def parse_pcap_file(filename):
 							body = zlib.decompress(http.body, 16+zlib.MAX_WBITS)
 							try:
 								# Execute the SQL command
-							   	cursor.execute("INSERT INTO Ad_Responses(SOURCE_IP,DESTINATION_IP,RES_STREAM,TCP_ACK) VALUES(%s,%s,%s,%s) ON DUPLICATE KEY UPDATE SOURCE_IP=%s,DESTINATION_IP=%s,RES_STREAM=%s", (source,dst,body,ack,source,dst,body))
+							   	cursor.execute("INSERT INTO Ad_Responses(SOURCE_IP,DESTINATION_IP,RES_STREAM,TCP_ACK,DPORT) VALUES(%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE SOURCE_IP=%s,DESTINATION_IP=%s,RES_STREAM=%s,DPORT=%s", (source,dst,body,ack,dport,source,dst,body,dport))
 							  	# Commit your changes in the database
 							   	db.commit()
 							except MySQLdb.Error as err:
@@ -63,7 +64,7 @@ def parse_pcap_file(filename):
 							body = http.body.decode(http.headers['content-encoding'],'strict')
 							try:
 								# Execute the SQL command
-							   	cursor.execute("INSERT INTO Ad_Responses(SOURCE_IP,DESTINATION_IP,RES_STREAM,TCP_ACK) VALUES(%s,%s,%s,%s) ON DUPLICATE KEY UPDATE SOURCE_IP=%s,DESTINATION_IP=%s,RES_STREAM=%s", (source,dst,body,ack,source,dst,body))
+							   	cursor.execute("INSERT INTO Ad_Responses(SOURCE_IP,DESTINATION_IP,RES_STREAM,TCP_ACK,DPORT) VALUES(%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE SOURCE_IP=%s,DESTINATION_IP=%s,RES_STREAM=%s,DPORT=%s", (source,dst,body,ack,dport,source,dst,body,dport))
 							  	# Commit your changes in the database
 							   	db.commit()
 							except MySQLdb.Error as err:
@@ -75,9 +76,9 @@ def parse_pcap_file(filename):
 						#print body
 						try:
 							# Execute the SQL command
-							   cursor.execute("INSERT INTO Ad_Responses(SOURCE_IP,DESTINATION_IP,RES_STREAM,TCP_ACK) VALUES(%s,%s,%s,%s) ON DUPLICATE KEY UPDATE SOURCE_IP=%s,DESTINATION_IP=%s,RES_STREAM=%s", (source,dst,body,ack,source,dst,body))
+							cursor.execute("INSERT INTO Ad_Responses(SOURCE_IP,DESTINATION_IP,RES_STREAM,TCP_ACK,DPORT) VALUES(%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE SOURCE_IP=%s,DESTINATION_IP=%s,RES_STREAM=%s,DPORT=%s", (source,dst,body,ack,dport,source,dst,body,dport))
 							# Commit your changes in the database
-							   db.commit()
+							db.commit()
 						except MySQLdb.Error as err:
 		  					print("Something went wrong: {}".format(err))
 							# Rollback in case there is any error
@@ -90,18 +91,24 @@ def parse_pcap_file(filename):
 					#print http.method, http.uri
 					#print conn[tupl]
 					host = http.headers['host']
-					user_agent= http.headers['user-agent']
+					if 'user-agent' in http.headers:
+						user_agent= http.headers['user-agent']
+					elif 'User-Agent' in http.headers:
+						user_agent=http.headers['User-Agent']
+					else:
+						user_agent = "No User Agent Found."
 					source = socket.inet_ntoa(ip.src)
 					dst = socket.inet_ntoa(ip.dst)
 					length = int(len(tcp.data))
 					seq = int(tcp.seq)
+					sport = tcp.sport
 					#accept=http.headers['accept']
 					
-					#sql = "INSERT INTO Ad_Requests(HOST,USER_AGENT,SOURCE_IP,DESTINATION_IP,REQ_STREAM,HTTP_SEQ,LEN_TCP) VALUES(%s,%s,%s,%s,%s,%d,%d)", (host,user_agent,source,dst,http.body,seq,length)
+					#sql = "INSERT INTO Ad_Requests(HOST,USER_AGENT,SOURCE_IP,DESTINATION_IP,REQ_STREAM,HTTP_SEQ,LEN_TCP,TCP_ACK) VALUES(%s,%s,%s,%s,%s,%d,%d,%d)", (host,user_agent,source,dst,http.body,seq,length,seq+length)
 					try:
 						if host=="googleads.g.doubleclick.net":
 							# Execute the SQL command
-					   		cursor.execute("INSERT INTO Ad_Requests(HOST,USER_AGENT,SOURCE_IP,DESTINATION_IP,REQ_STREAM,HTTP_SEQ,LEN_TCP) VALUES(%s,%s,%s,%s,%s,%s,%s)", (host,user_agent,source,dst,stream,seq,length))
+					   		cursor.execute("INSERT INTO Ad_Requests(HOST,USER_AGENT,SOURCE_IP,DESTINATION_IP,REQ_STREAM,HTTP_SEQ,LEN_TCP,TCP_ACK,SPORT) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)", (host,user_agent,source,dst,stream,seq,length,seq+length,sport))
 					  	# Commit your changes in the database
 					   		db.commit()
 					except MySQLdb.Error as err:
@@ -116,8 +123,11 @@ def parse_pcap_file(filename):
 			except dpkt.NeedData,e:
 		  		#print "dpkt raised an Need error %s" % (e)
 				pass
+			except KeyError,e:
+				print 'Hello',source,dst
+				pass
 	try:
-		cursor.execute("SELECT Ad_Requests.SOURCE_IP,Ad_Requests.DESTINATION_IP,Ad_Requests.REQ_STREAM,Ad_Responses.RES_STREAM FROM Ad_Requests,Ad_Responses where (Ad_Responses.TCP_ACK=Ad_Requests.HTTP_SEQ+Ad_Requests.LEN_TCP)")
+		cursor.execute("SELECT Ad_Requests.SOURCE_IP,Ad_Requests.DESTINATION_IP,Ad_Requests.REQ_STREAM,Ad_Responses.RES_STREAM FROM Ad_Requests,Ad_Responses where Ad_Responses.TCP_ACK=Ad_Requests.TCP_ACK and Ad_Responses.DPORT=Ad_Requests.SPORT and Ad_Requests.DESTINATION_IP=Ad_Responses.SOURCE_IP")
 		result = cursor.fetchall()
 		for row in result:
 			text = "\n\n'Request': "
@@ -125,7 +135,7 @@ def parse_pcap_file(filename):
 			DESTINATION_IP = row[1]
 			REQ_STREAM = row[2]
 			text += REQ_STREAM
-			RES_STREAM = row[3]+","
+			RES_STREAM = row[3]
 			text+="'Response': " + RES_STREAM+"\n\n"
 			print text
 	except MySQLdb.Error as err:
