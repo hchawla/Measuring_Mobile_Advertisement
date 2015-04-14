@@ -91,12 +91,7 @@ def parse_pcap_file(filename):
 					#print http.method, http.uri
 					#print conn[tupl]
 					host = http.headers['host']
-					if 'user-agent' in http.headers:
-						user_agent= http.headers['user-agent']
-					elif 'User-Agent' in http.headers:
-						user_agent=http.headers['User-Agent']
-					else:
-						user_agent = "No User Agent Found."
+					user_agent= http.headers['user-agent']
 					source = socket.inet_ntoa(ip.src)
 					dst = socket.inet_ntoa(ip.dst)
 					length = int(len(tcp.data))
@@ -122,9 +117,6 @@ def parse_pcap_file(filename):
 				pass
 			except dpkt.NeedData,e:
 		  		#print "dpkt raised an Need error %s" % (e)
-				pass
-			except KeyError,e:
-				print 'Hello',source,dst
 				pass
 	try:
 		cursor.execute("SELECT Ad_Requests.SOURCE_IP,Ad_Requests.DESTINATION_IP,Ad_Requests.REQ_STREAM,Ad_Responses.RES_STREAM FROM Ad_Requests,Ad_Responses where Ad_Responses.TCP_ACK=Ad_Requests.TCP_ACK and Ad_Responses.DPORT=Ad_Requests.SPORT and Ad_Requests.DESTINATION_IP=Ad_Responses.SOURCE_IP")

@@ -1,0 +1,5 @@
+#! /bin/bash
+
+use android_ad;
+id=$(mysql -u android -pandroid -D android_ad -e "select userid from vpn_clients where status='D'")
+echo $id
